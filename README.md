@@ -27,3 +27,5 @@ Streamlit arayüzü ve Groq LLM API ile geliştirilmiştir. Türkçe ve İngiliz
 ![PDF Assistant Screenshot 2](images/2.png)
 ![PDF Assistant Screenshot 3](images/3.png)
 ![PDF Assistant Screenshot 4](images/4.png)
+
+---
