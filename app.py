@@ -2740,19 +2740,29 @@ def force_open_sidebar() -> None:
                 box-shadow: 0 6px 20px rgba(0,0,0,0.5);
                 cursor: pointer;
                 display: flex;
+                flex-direction: column;
                 align-items: center;
                 justify-content: center;
                 padding: 0;
-                transition: transform 0.15s, background 0.2s;
+                pointer-events: auto;
+                /* Açıldığında sağa kaysın — sidebar'ın dışında, ana içeriğin
+                   üstünde tıklanabilir kalsın */
+                transition: left 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+                            transform 0.15s,
+                            background 0.2s;
               }
               #mtk-mobile-menu:active { transform: scale(0.92); }
-              #mtk-mobile-menu.open { background: #6bc9f0; }
+              #mtk-mobile-menu.open {
+                left: calc(min(82vw, 18rem) + 12px);
+                background: #6bc9f0;
+              }
               #mtk-mobile-menu .bar {
                 display: block;
                 width: 20px; height: 2.5px;
                 background: #0a0a0b;
                 margin: 2.5px 0;
                 border-radius: 2px;
+                pointer-events: none; /* Tıklamayı butona iletsin */
                 transition: transform 0.2s, opacity 0.2s;
               }
               #mtk-mobile-menu.open .bar:nth-child(1) {
@@ -2818,27 +2828,51 @@ def force_open_sidebar() -> None:
 
             const getSidebar = () => parentDoc.querySelector('section[data-testid="stSidebar"]');
 
+            // State'i tek değişkende tut, DOM query'sine güvenme.
+            // Streamlit re-render edip class'ı silebilir; biz authoritative kaynak oluruz.
+            let isOpen = false;
+
             const setOpen = (open) => {
+                isOpen = open;
                 const sb = getSidebar();
-                if (!sb) return;
+                if (sb) {
+                    if (open) sb.classList.add('mtk-open');
+                    else      sb.classList.remove('mtk-open');
+                }
                 if (open) {
-                    sb.classList.add('mtk-open');
                     btn.classList.add('open');
                     backdrop.classList.add('show');
+                    btn.setAttribute('aria-label', 'Kapat');
                 } else {
-                    sb.classList.remove('mtk-open');
                     btn.classList.remove('open');
                     backdrop.classList.remove('show');
+                    btn.setAttribute('aria-label', 'Menu');
                 }
             };
 
-            btn.addEventListener('click', (e) => {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
                 e.stopPropagation();
+                setOpen(!isOpen);
+            }, true); // capture phase — Streamlit'in event'i yakalamasından önce çalış
+
+            backdrop.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                setOpen(false);
+            }, true);
+
+            // Streamlit rerun olunca class'ı silmiş olabilir — düzenli senkronize et.
+            const syncInterval = parentWin.setInterval(() => {
                 const sb = getSidebar();
                 if (!sb) return;
-                setOpen(!sb.classList.contains('mtk-open'));
-            });
-            backdrop.addEventListener('click', () => setOpen(false));
+                const hasClass = sb.classList.contains('mtk-open');
+                if (isOpen && !hasClass) {
+                    sb.classList.add('mtk-open');
+                } else if (!isOpen && hasClass) {
+                    sb.classList.remove('mtk-open');
+                }
+            }, 400);
 
             // PDF yüklenince otomatik kapat
             const watchUpload = () => {
