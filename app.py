@@ -2551,53 +2551,12 @@ def inject_theme() -> None:
 
             /* ─── Responsive: telefon (≤640px) ─── */
             @media (max-width: 640px) {
-                /* Sidebar: ekrana göre %82, asla 18rem'i geçmesin. */
-                section[data-testid="stSidebar"],
-                section[data-testid="stSidebar"] > div:first-child,
-                section[data-testid="stSidebar"][aria-expanded="true"] {
-                    min-width: 0 !important;
-                    max-width: min(82vw, 18rem) !important;
-                    width: min(82vw, 18rem) !important;
-                    z-index: 999 !important;
-                    box-shadow: 0 0 40px rgba(0,0,0,0.6);
-                }
-                /* Sidebar kapalı: ekran dışına kay — visibility yok, animasyon korunsun */
-                section[data-testid="stSidebar"][aria-expanded="false"] {
-                    transform: translateX(-100%) !important;
-                }
-
                 /* Top-brand mobilde gizli — hamburger butonu için yer açıyor.
                    Marka zaten ana hero'da büyük şekilde görünüyor. */
                 .top-brand { display: none !important; }
-                .block-container { padding-top: 1.2rem !important; }
-
-                /* Hamburger butonu: sol üstte, üstte, belirgin */
-                [data-testid="collapsedControl"] {
-                    position: fixed !important;
-                    top: 12px !important;
-                    left: 12px !important;
-                    z-index: 1000 !important;
-                    background: rgba(201, 240, 107, 0.96) !important;
-                    border: 1px solid #c9f06b !important;
-                    border-radius: 12px !important;
-                    padding: 8px !important;
-                    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
-                }
-                [data-testid="collapsedControl"] button,
-                [data-testid="collapsedControl"] svg {
-                    color: #0a0a0b !important;
-                    fill: #0a0a0b !important;
-                }
-
-                /* Sidebar açıkken sayfada arka plana karartma yapsın (mobil overlay) */
-                section[data-testid="stSidebar"][aria-expanded="true"]::after {
-                    content: "";
-                    position: fixed;
-                    top: 0; right: -100vw; bottom: 0;
-                    width: 100vw;
-                    background: rgba(0,0,0,0.5);
-                    pointer-events: none;
-                }
+                .block-container { padding-top: 4rem !important; }
+                /* NOT: sidebar mobil davranışı force_open_sidebar JS'inde
+                   tanımlı — özel hamburger butonu + transform ile yönetiliyor. */
 
                 .block-container {
                     padding-top: 4rem;
@@ -2740,53 +2699,166 @@ def render_language_switcher() -> None:
 
 
 def force_open_sidebar() -> None:
-    """Desktop'ta sidebar'ı garantili açar. Mobilde dokunmaz — kullanıcı
-    hamburger menüden kendi açar. Ayrıca mobilde: kullanıcı dosya yüklediğinde
-    sidebar otomatik kapanır ki ana içerik (özet butonu vs.) görünsün."""
+    """Desktop'ta sidebar'ı garantili açar. Mobilde kendi özel hamburger
+    butonumuzu inject eder — Streamlit'in dahili butonuna güvenmiyor."""
     components.html(
         """
         <script>
+        (function() {
             const parentWin = window.parent;
             const parentDoc = parentWin.document;
             const isMobile = parentWin.matchMedia('(max-width: 640px)').matches;
 
-            // Desktop: garantili aç
-            const openSidebar = () => {
-                const btn = parentDoc.querySelector('[data-testid="collapsedControl"] button');
-                if (btn) btn.click();
-            };
-            const closeSidebar = () => {
-                const sidebar = parentDoc.querySelector('section[data-testid="stSidebar"]');
-                if (!sidebar) return;
-                const closeBtn = sidebar.querySelector('button[data-testid="baseButton-headerNoPadding"]')
-                    || sidebar.querySelector('[data-testid="stSidebarCollapseButton"] button')
-                    || sidebar.querySelector('button[kind="header"]');
-                if (closeBtn) closeBtn.click();
-            };
-
+            // Desktop: Streamlit'in kendi collapse butonunu klikle, aç.
             if (!isMobile) {
+                const openSidebar = () => {
+                    const btn = parentDoc.querySelector('[data-testid="collapsedControl"] button')
+                        || parentDoc.querySelector('[data-testid="stSidebarCollapsedControl"] button');
+                    if (btn) btn.click();
+                };
                 openSidebar();
                 parentWin.setTimeout(openSidebar, 180);
                 parentWin.setTimeout(openSidebar, 900);
-            } else {
-                // Mobil: dosya yüklenince sidebar'ı kapat. file_uploader'ın input'unu
-                // izle, kullanıcı dosya seçtiğinde once kapansın.
-                const watchUpload = () => {
-                    const input = parentDoc.querySelector(
-                        'section[data-testid="stSidebar"] input[type="file"]'
-                    );
-                    if (!input || input.dataset.mtkBound === '1') return;
-                    input.dataset.mtkBound = '1';
-                    input.addEventListener('change', () => {
-                        // Streamlit upload'u işlemesi için kısa bir gecikme
-                        parentWin.setTimeout(closeSidebar, 600);
-                    });
-                };
-                watchUpload();
-                parentWin.setTimeout(watchUpload, 500);
-                parentWin.setTimeout(watchUpload, 1500);
-                parentWin.setTimeout(watchUpload, 3500);
+                return;
             }
+
+            // ─── Mobil: Özel hamburger butonu + backdrop inject ───
+            if (parentDoc.getElementById('mtk-mobile-menu')) return; // tek sefer
+
+            // Style: hamburger FAB
+            const style = parentDoc.createElement('style');
+            style.id = 'mtk-mobile-menu-style';
+            style.textContent = `
+              #mtk-mobile-menu {
+                position: fixed;
+                top: 12px; left: 12px;
+                z-index: 2000;
+                width: 44px; height: 44px;
+                background: #c9f06b;
+                border: none;
+                border-radius: 12px;
+                box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 0;
+                transition: transform 0.15s, background 0.2s;
+              }
+              #mtk-mobile-menu:active { transform: scale(0.92); }
+              #mtk-mobile-menu.open { background: #6bc9f0; }
+              #mtk-mobile-menu .bar {
+                display: block;
+                width: 20px; height: 2.5px;
+                background: #0a0a0b;
+                margin: 2.5px 0;
+                border-radius: 2px;
+                transition: transform 0.2s, opacity 0.2s;
+              }
+              #mtk-mobile-menu.open .bar:nth-child(1) {
+                transform: translateY(7.5px) rotate(45deg);
+              }
+              #mtk-mobile-menu.open .bar:nth-child(2) {
+                opacity: 0;
+              }
+              #mtk-mobile-menu.open .bar:nth-child(3) {
+                transform: translateY(-7.5px) rotate(-45deg);
+              }
+
+              #mtk-mobile-backdrop {
+                position: fixed;
+                top: 0; left: 0; right: 0; bottom: 0;
+                background: rgba(0,0,0,0.55);
+                z-index: 1500;
+                opacity: 0;
+                visibility: hidden;
+                transition: opacity 0.25s, visibility 0.25s;
+              }
+              #mtk-mobile-backdrop.show {
+                opacity: 1;
+                visibility: visible;
+              }
+
+              /* Sidebar'ı mobilde transform ile yönet */
+              section[data-testid="stSidebar"] {
+                position: fixed !important;
+                top: 0; left: 0; bottom: 0;
+                height: 100vh !important;
+                z-index: 1700 !important;
+                transform: translateX(-100%);
+                transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+                width: min(82vw, 18rem) !important;
+                max-width: min(82vw, 18rem) !important;
+                min-width: 0 !important;
+                box-shadow: 0 0 40px rgba(0,0,0,0.6);
+              }
+              section[data-testid="stSidebar"].mtk-open {
+                transform: translateX(0) !important;
+              }
+              /* Streamlit'in kendi collapse butonunu mobilde sakla */
+              [data-testid="collapsedControl"],
+              [data-testid="stSidebarCollapsedControl"],
+              [data-testid="stSidebarCollapseButton"] {
+                display: none !important;
+              }
+            `;
+            parentDoc.head.appendChild(style);
+
+            // Hamburger button
+            const btn = parentDoc.createElement('button');
+            btn.id = 'mtk-mobile-menu';
+            btn.setAttribute('aria-label', 'Menu');
+            btn.innerHTML = '<span class="bar"></span><span class="bar"></span><span class="bar"></span>';
+            parentDoc.body.appendChild(btn);
+
+            // Backdrop
+            const backdrop = parentDoc.createElement('div');
+            backdrop.id = 'mtk-mobile-backdrop';
+            parentDoc.body.appendChild(backdrop);
+
+            const getSidebar = () => parentDoc.querySelector('section[data-testid="stSidebar"]');
+
+            const setOpen = (open) => {
+                const sb = getSidebar();
+                if (!sb) return;
+                if (open) {
+                    sb.classList.add('mtk-open');
+                    btn.classList.add('open');
+                    backdrop.classList.add('show');
+                } else {
+                    sb.classList.remove('mtk-open');
+                    btn.classList.remove('open');
+                    backdrop.classList.remove('show');
+                }
+            };
+
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const sb = getSidebar();
+                if (!sb) return;
+                setOpen(!sb.classList.contains('mtk-open'));
+            });
+            backdrop.addEventListener('click', () => setOpen(false));
+
+            // PDF yüklenince otomatik kapat
+            const watchUpload = () => {
+                const input = parentDoc.querySelector(
+                    'section[data-testid="stSidebar"] input[type="file"]'
+                );
+                if (!input || input.dataset.mtkBound === '1') return;
+                input.dataset.mtkBound = '1';
+                input.addEventListener('change', () => {
+                    parentWin.setTimeout(() => setOpen(false), 600);
+                });
+            };
+            watchUpload();
+            parentWin.setTimeout(watchUpload, 600);
+            parentWin.setTimeout(watchUpload, 1600);
+            parentWin.setTimeout(watchUpload, 3500);
+
+            // Başlangıçta kapalı dur (kullanıcı içeriği görsün)
+            setOpen(false);
+        })();
         </script>
         """,
         height=0,
