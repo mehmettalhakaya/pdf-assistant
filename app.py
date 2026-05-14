@@ -498,6 +498,8 @@ def _summary_prompt_templates() -> Dict[str, str]:
     """
     if get_lang() == "tr":
         chunk_prompt_template = """
+ÖNEMLİ: Yanıtını mutlaka Türkçe yaz. PDF başka bir dilde olsa bile çıktı Türkçe olmalı.
+
 Sen bir PDF asistanısın.
 Bu PDF bölümüne göre en önemli konuları ve terimleri ayrıntılı biçimde özetle.
 Kaynak belirtme. Sadece özet yaz.
@@ -517,6 +519,8 @@ Metin:
 """.strip()
 
         final_prompt_template = """
+ÖNEMLİ: Yanıtını mutlaka Türkçe yaz. PDF başka bir dilde olsa bile çıktı Türkçe olmalı.
+
 Sen bir PDF asistanısın.
 Aşağıda PDF'in farklı parçalarından çıkarılmış ara özetler var.
 Bunların tamamını kullanarak tek bir büyük ve düzenli özet oluştur.
@@ -545,6 +549,8 @@ Ara özetler:
 """.strip()
 
         direct_prompt_template = """
+ÖNEMLİ: Yanıtını mutlaka Türkçe yaz. PDF başka bir dilde olsa bile çıktı Türkçe olmalı.
+
 Sen bir PDF asistanısın.
 Aşağıdaki PDF metninin tamamını kullanarak hızlı ama kapsamlı bir ders notu özeti oluştur.
 
@@ -562,6 +568,8 @@ PDF metni:
 """.strip()
     else:
         chunk_prompt_template = """
+IMPORTANT: Always respond in English. The output must be in English even if the PDF is in another language.
+
 You are a PDF assistant.
 Summarize the most important topics and terms from this PDF section.
 Do not cite sources. Only provide a summary.
@@ -581,6 +589,8 @@ Text:
 """.strip()
 
         final_prompt_template = """
+IMPORTANT: Always respond in English. The output must be in English even if the PDF is in another language.
+
 You are a PDF assistant.
 Below are partial summaries from different parts of the PDF.
 Create one large, organized summary from all of them.
@@ -608,6 +618,8 @@ Partial summaries:
 """.strip()
 
         direct_prompt_template = """
+IMPORTANT: Always respond in English. The output must be in English even if the PDF is in another language.
+
 You are a PDF assistant.
 Use the full PDF text below to create a fast but comprehensive study-note summary.
 
@@ -862,6 +874,8 @@ def _build_summary_continuation_prompt(summary: str, source_notes: str) -> str:
     tail = summary[-5000:]
     if get_lang() == "tr":
         return f"""
+ÖNEMLİ: Yanıtını mutlaka Türkçe yaz.
+
 Bir PDF özetinin sonu yarım kalmış görünüyor.
 Ara özetleri ve mevcut özetin son kısmını kullanarak sadece eksik kalan devam metnini yaz.
 
@@ -880,6 +894,8 @@ Mevcut özetin son kısmı:
 """.strip()
 
     return f"""
+IMPORTANT: Always respond in English.
+
 The end of a PDF summary appears to be cut off.
 Using the partial notes and the tail of the current summary, write only the missing continuation.
 
@@ -1309,9 +1325,23 @@ def render_tts_widget(summary: str) -> None:
 <style>
   .tts {{
     display: flex; gap: 10px; align-items: center;
+    flex-wrap: wrap;
     font-family: 'DM Sans', system-ui, sans-serif;
     color: #e8e6e1;
     padding: 6px 0;
+  }}
+  @media (max-width: 640px) {{
+    .tts {{ gap: 8px; }}
+    .tts button {{ padding: 8px 12px !important; font-size: 12.5px; }}
+    .tts .speed-group {{
+      width: 100%;
+      margin-left: 0;
+      padding-left: 0;
+      border-left: none;
+      border-top: 1px solid #2a2a2e;
+      padding-top: 8px;
+    }}
+    .tts select {{ flex: 1; }}
   }}
   .tts button {{
     background: #1a1a1e;
@@ -1599,6 +1629,7 @@ def _build_chat_prompt(question: str, context: str, history: List[Dict]) -> str:
                 lines.append(f"S: {turn['q']}\nC: {turn['a']}")
             history_block = "\n".join(lines) + "\n\n"
         return (
+            "ÖNEMLİ: Yanıtını mutlaka Türkçe yaz. PDF başka bir dilde olsa bile çıktı Türkçe olmalı.\n\n"
             "Sen bir PDF asistanısın. Aşağıdaki PDF içeriğine dayanarak kullanıcının sorusunu yanıtla.\n"
             "Sadece PDF içeriğine dayan. Bilmediğin şeyi uydurma; PDF'te yoksa açıkça söyle.\n"
             "Yanıtın açık, düzenli ve anlaşılır olsun.\n\n"
@@ -1613,6 +1644,7 @@ def _build_chat_prompt(question: str, context: str, history: List[Dict]) -> str:
             lines.append(f"Q: {turn['q']}\nA: {turn['a']}")
         history_block = "\n".join(lines) + "\n\n"
     return (
+        "IMPORTANT: Always respond in English. The output must be in English even if the PDF is in another language.\n\n"
         "You are a PDF assistant. Answer the user's question based on the PDF content below.\n"
         "Only use the PDF content. Do not invent facts; say so if it isn't there.\n"
         "Your answer should be clear, organized, and easy to follow.\n\n"
@@ -2385,16 +2417,12 @@ def inject_theme() -> None:
             ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
             ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
-            /* ─── Responsive ─── */
+            /* ─── Responsive: tablet ve daha küçük (≤768px) ─── */
             @media (max-width: 768px) {
-                .block-container { padding-top: 4.8rem; }
-
-                section[data-testid="stSidebar"],
-                section[data-testid="stSidebar"] > div:first-child,
-                section[data-testid="stSidebar"][aria-expanded="false"] {
-                    min-width: 18rem !important;
-                    max-width: 18rem !important;
-                    width: 18rem !important;
+                .block-container {
+                    padding-top: 4.8rem;
+                    padding-left: 1rem;
+                    padding-right: 1rem;
                 }
 
                 .hero-shell {
@@ -2402,10 +2430,105 @@ def inject_theme() -> None:
                     border-radius: 20px;
                 }
 
-                .hero-title { font-size: 2.8rem; }
+                .hero-title { font-size: 2.4rem; }
                 .orb-1 { width: 220px; height: 220px; }
                 .orb-2 { width: 160px; height: 160px; }
                 .orb-3 { width: 120px; height: 120px; }
+
+                /* Üst marka çubuğu: sidebar açıkken bile pencereye sığsın */
+                .top-brand {
+                    left: 0 !important;
+                    height: 52px;
+                    padding: 0 16px;
+                }
+                .top-brand .top-logo,
+                .top-brand .top-logo * { font-size: 1.25rem !important; }
+                .top-brand .top-tag { padding: 4px 10px; font-size: 11px; }
+            }
+
+            /* ─── Responsive: telefon (≤640px) ─── */
+            @media (max-width: 640px) {
+                /* Sidebar varsayılan olarak kapalı görünsün (Streamlit
+                   zaten collapse butonu ekler). Açıldığında daha dar olsun. */
+                section[data-testid="stSidebar"],
+                section[data-testid="stSidebar"] > div:first-child {
+                    min-width: 16rem !important;
+                    max-width: 16rem !important;
+                    width: 16rem !important;
+                }
+
+                .block-container {
+                    padding-top: 4rem;
+                    padding-left: 0.75rem;
+                    padding-right: 0.75rem;
+                    max-width: 100%;
+                }
+
+                .hero-shell { padding: 1.1rem; border-radius: 16px; }
+                .hero-title { font-size: 1.9rem; line-height: 1.1; }
+                .hero-label { font-size: 11px; }
+
+                .orb-1 { width: 140px; height: 140px; opacity: 0.5; }
+                .orb-2 { width: 110px; height: 110px; opacity: 0.4; }
+                .orb-3 { width: 80px; height: 80px; opacity: 0.3; }
+
+                /* Top brand: tam akıllı telefon ekranına sığsın */
+                .top-brand { height: 48px; padding: 0 12px; }
+                .top-brand .top-logo,
+                .top-brand .top-logo * { font-size: 1.1rem !important; }
+                .top-brand .top-tag {
+                    padding: 3px 8px;
+                    font-size: 10px;
+                    letter-spacing: 0.04em;
+                }
+
+                /* Sayfa ve sohbet kartlarındaki bilgi karoları */
+                .stat-card, .pdf-meta {
+                    font-size: 12px !important;
+                    padding: 6px 10px !important;
+                }
+
+                /* Tabs (Özet / Sohbet) — küçük ekranda daha sıkışık */
+                .stTabs [data-baseweb="tab-list"] {
+                    gap: 4px;
+                    padding: 4px;
+                }
+                .stTabs [data-baseweb="tab"] {
+                    padding: 8px 14px !important;
+                    font-size: 14px !important;
+                }
+
+                /* Bütün butonlar full-width hissedilsin */
+                .stButton button, .stDownloadButton button {
+                    width: 100% !important;
+                    font-size: 14px !important;
+                    padding: 12px 16px !important;
+                }
+
+                /* Marquee gizle — yer kaplıyor */
+                .marquee { display: none !important; }
+
+                /* PDF meta bilgi karoları stack */
+                .stat-row, .pdf-info-row {
+                    flex-direction: column !important;
+                    gap: 8px !important;
+                    align-items: stretch !important;
+                }
+
+                /* Chat kartı içi padding'i azalt */
+                .chat-card {
+                    padding: 12px 14px !important;
+                    border-radius: 12px !important;
+                }
+                .chat-card-question { font-size: 14px !important; }
+            }
+
+            /* ─── TTS widget: her ekranda akıllı sarılma ─── */
+            @media (max-width: 520px) {
+                /* TTS widget iframe içinde — bu CSS oraya ulaşmaz ama yine de
+                   ana sayfada üzerine yapışan yüksekliği biraz büyütelim ki
+                   iframe sıkışmasın */
+                iframe[title="streamlit_app"] { min-height: 110px; }
             }
         </style>
         """
