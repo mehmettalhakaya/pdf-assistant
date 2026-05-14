@@ -129,6 +129,7 @@ LANG = {
         "err_empty": "PDF'ten metin çıkarılamadı. Tarama tabanlı PDF olabilir; OCR uygulanmış bir kopya yükle.",
         "err_open_failed": "PDF açılamadı: {detail}",
         "warn_huge_text": "PDF çok yoğun ({chars} karakter). Özet uzun sürebilir; kahveni hazırla.",
+        "warn_low_quality_pdf": "PDF'in yazı katmanı kısmen bozuk (taranmış veya özel font). Bazı karakterler eksik veya '?' görünebilir, özet kalitesi düşebilir.",
         "llm_failed": "Yanıt alınamadı. Lütfen birkaç saniye sonra tekrar dene.",
         "llm_partial": "Bazı parçalar alınamadı, kalanlardan özet üretildi.",
         "llm_empty": "Model boş yanıt döndürdü. Soruyu yeniden ifade etmeyi dene.",
@@ -173,6 +174,7 @@ LANG = {
         "err_empty": "No text could be extracted. The PDF may be scanned/image-only; upload an OCR'd copy.",
         "err_open_failed": "Failed to open PDF: {detail}",
         "warn_huge_text": "PDF is dense ({chars} chars). Summary may take a while.",
+        "warn_low_quality_pdf": "PDF text layer is partly broken (scanned or custom font). Some characters may be missing or appear as '?', summary quality may drop.",
         "llm_failed": "Failed to get a response. Please try again in a few seconds.",
         "llm_partial": "Some chunks failed; summary built from the rest.",
         "llm_empty": "Model returned an empty response. Try rephrasing your question.",
@@ -287,6 +289,88 @@ class PDFLoadError(Exception):
         super().__init__(key)
 
 
+# Unicode "replacement character" — broken encoding'lerde bozuk glif olarak görünür.
+# Ayrıca PDF'lerden gelen private-use area (PUA) karakterleri (-),
+# Tagging/Tag/Variation Selector karakterleri "kare" olarak görünür.
+_PUA_RE = re.compile(r"[-￰-￿�]")
+_CTRL_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]")
+_GARBAGE_THRESHOLD = 0.30  # %30 üstü "garbage" → uyarı
+
+
+def _garbage_ratio(text: str) -> float:
+    """Metindeki bozuk/PUA/kontrol karakter oranı (0.0 - 1.0)."""
+    if not text:
+        return 1.0
+    bad = len(_PUA_RE.findall(text)) + len(_CTRL_RE.findall(text)) + text.count("?")
+    return min(1.0, bad / max(1, len(text)))
+
+
+def _clean_extracted_text(text: str) -> str:
+    """Çıkarımdan sonra bozuk karakterleri ve kontrol kodlarını temizle."""
+    if not text:
+        return ""
+    # Replacement char ve PUA → kaldır (tamamen okunamayan)
+    text = _PUA_RE.sub("", text)
+    # Kontrol karakterleri (newline/tab hariç) → kaldır
+    text = _CTRL_RE.sub("", text)
+    # Soft hyphen (­) — bazı PDF'lerin satır sonu süslemesi, kelime ortasında görünür
+    text = text.replace("­", "")
+    # Çift boşlukları teklerle değiştir, NBSP'leri normal boşluğa çevir
+    text = text.replace(" ", " ").replace(" ", " ").replace(" ", " ")
+    return text
+
+
+def _extract_page_text(page) -> str:
+    """Bir sayfa için birden fazla extraction yöntemi dener, en sağlamını seçer.
+
+    Bazı PDF'lerde font'un toUnicode CMap'i bozuk olur ve karakterler ?
+    ya da PUA glif'i olarak gelir. Farklı `get_text` modları farklı sonuç
+    verebilir — en az bozuk olanı tercih ediyoruz.
+    """
+    candidates: List[str] = []
+
+    # Yöntem 1: standart text — çoğu PDF için yeterli, hızlı.
+    try:
+        t = page.get_text("text", sort=True) or ""
+        candidates.append(t)
+    except Exception:
+        pass
+
+    # Yöntem 2: dict — span-bazlı, bazen toUnicode bypass ediliyor.
+    try:
+        td = page.get_text("dict")
+        parts: List[str] = []
+        for block in td.get("blocks", []):
+            for line in block.get("lines", []):
+                spans = [s.get("text", "") for s in line.get("spans", [])]
+                if spans:
+                    parts.append("".join(spans))
+        if parts:
+            candidates.append("\n".join(parts))
+    except Exception:
+        pass
+
+    # Yöntem 3: rawdict — daha ham, bazı font tablolarında daha iyi.
+    try:
+        t = page.get_text("blocks") or []
+        parts = [b[4] for b in t if len(b) > 4 and isinstance(b[4], str)]
+        if parts:
+            candidates.append("\n".join(parts))
+    except Exception:
+        pass
+
+    if not candidates:
+        return ""
+
+    # En az bozuk karakter oranına sahip aday + en uzun olanı dengeleyerek seç.
+    # (Pure ratio en kısa boş string'i seçebilir, uzunluğa da bakıyoruz.)
+    best = min(
+        candidates,
+        key=lambda x: (_garbage_ratio(x), -len(x.strip())),
+    )
+    return _clean_extracted_text(best).strip()
+
+
 def extract_pdf_chunks(file_bytes: bytes) -> List[Dict]:
     if len(file_bytes) > MAX_PDF_BYTES:
         raise PDFLoadError("err_too_large", limit=MAX_PDF_BYTES // (1024 * 1024))
@@ -304,18 +388,34 @@ def extract_pdf_chunks(file_bytes: bytes) -> List[Dict]:
             raise PDFLoadError("err_too_many_pages", limit=MAX_PDF_PAGES)
 
         chunks: List[Dict] = []
+        total_chars = 0
+        total_garbage = 0
         for index, page in enumerate(doc):
             try:
-                text = page.get_text().strip()
+                text = _extract_page_text(page)
             except Exception:
                 text = ""
             if text:
+                garbage = sum(
+                    1 for ch in text
+                    if _PUA_RE.match(ch) or ch == "?" or _CTRL_RE.match(ch)
+                )
+                total_chars += len(text)
+                total_garbage += garbage
                 chunks.append({"page": index + 1, "text": text})
     finally:
         doc.close()
 
     if not chunks:
         raise PDFLoadError("err_empty")
+
+    # Yüksek garbage ratio'da kullanıcıyı uyar — ama yine de işle.
+    if total_chars > 0 and total_garbage / total_chars > _GARBAGE_THRESHOLD:
+        try:
+            st.warning(t("warn_low_quality_pdf"))
+        except Exception:
+            # Test stub'unda warning olmayabilir, sessizce geç.
+            pass
 
     return chunks
 
@@ -2448,13 +2548,28 @@ def inject_theme() -> None:
 
             /* ─── Responsive: telefon (≤640px) ─── */
             @media (max-width: 640px) {
-                /* Sidebar varsayılan olarak kapalı görünsün (Streamlit
-                   zaten collapse butonu ekler). Açıldığında daha dar olsun. */
+                /* Sidebar: ekrana göre %78, asla 16rem'i geçmesin. Açık iken
+                   bile ana içerik biraz görünsün, kapalıyken hamburger
+                   butonuyla açılır. */
                 section[data-testid="stSidebar"],
-                section[data-testid="stSidebar"] > div:first-child {
-                    min-width: 16rem !important;
-                    max-width: 16rem !important;
-                    width: 16rem !important;
+                section[data-testid="stSidebar"] > div:first-child,
+                section[data-testid="stSidebar"][aria-expanded="true"] {
+                    min-width: 0 !important;
+                    max-width: min(78vw, 16rem) !important;
+                    width: min(78vw, 16rem) !important;
+                }
+                /* Sidebar kapalıyken görünmesin (Streamlit zaten transform
+                   uygular ama bazı versiyonlarda kalıntı kalıyor) */
+                section[data-testid="stSidebar"][aria-expanded="false"] {
+                    transform: translateX(-100%) !important;
+                    visibility: hidden;
+                }
+                /* Hamburger menü butonunu daha görünür yap */
+                [data-testid="collapsedControl"] {
+                    background: rgba(17, 17, 19, 0.92) !important;
+                    border: 1px solid #2a2a2e !important;
+                    border-radius: 10px !important;
+                    backdrop-filter: blur(10px);
                 }
 
                 .block-container {
@@ -2598,17 +2713,23 @@ def render_language_switcher() -> None:
 
 
 def force_open_sidebar() -> None:
+    """Desktop'ta sidebar'ı kullanıcıya hatırlatmak için otomatik açar.
+    Mobilde (≤640px) bu hiç çalışmaz — kullanıcı kendi hamburger menüsünden
+    açar, böylece sidebar tüm ekranı kaplamaz."""
     components.html(
         """
         <script>
-            const openSidebar = () => {
-                const parentDoc = window.parent.document;
-                const expandButton = parentDoc.querySelector('[data-testid="collapsedControl"] button');
-                if (expandButton) expandButton.click();
-            };
-            openSidebar();
-            window.setTimeout(openSidebar, 180);
-            window.setTimeout(openSidebar, 900);
+            const isMobile = window.parent.matchMedia('(max-width: 640px)').matches;
+            if (!isMobile) {
+                const openSidebar = () => {
+                    const parentDoc = window.parent.document;
+                    const expandButton = parentDoc.querySelector('[data-testid="collapsedControl"] button');
+                    if (expandButton) expandButton.click();
+                };
+                openSidebar();
+                window.setTimeout(openSidebar, 180);
+                window.setTimeout(openSidebar, 900);
+            }
         </script>
         """,
         height=0,
@@ -3014,3 +3135,4 @@ if st.session_state.chunks:
         render_chat_tab()
 else:
     render_empty_state()
+# SENTI
