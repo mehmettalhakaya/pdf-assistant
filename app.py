@@ -2723,7 +2723,18 @@ def force_open_sidebar() -> None:
             }
 
             // ─── Mobil: Özel hamburger butonu + backdrop inject ───
-            if (parentDoc.getElementById('mtk-mobile-menu')) return; // tek sefer
+            // Eğer style+button+backdrop zaten var ise atla, yoksa oluştur.
+            // (Streamlit her rerun'da script'i çalıştırır; tek sefer DOM ekleriz.)
+            const existingStyle = parentDoc.getElementById('mtk-mobile-menu-style');
+            const existingBtn = parentDoc.getElementById('mtk-mobile-menu');
+            const existingBackdrop = parentDoc.getElementById('mtk-mobile-backdrop');
+
+            if (existingStyle && existingBtn && existingBackdrop) {
+                // DOM zaten hazır — sadece state senkronizasyonuna geç (aşağıda)
+            } else {
+                if (existingStyle) existingStyle.remove();
+                if (existingBtn) existingBtn.remove();
+                if (existingBackdrop) existingBackdrop.remove();
 
             // Style: hamburger FAB
             const style = parentDoc.createElement('style');
@@ -2825,56 +2836,73 @@ def force_open_sidebar() -> None:
             const backdrop = parentDoc.createElement('div');
             backdrop.id = 'mtk-mobile-backdrop';
             parentDoc.body.appendChild(backdrop);
+            } // end of if (!existingBtn || !existingBackdrop || !existingStyle)
 
             const getSidebar = () => parentDoc.querySelector('section[data-testid="stSidebar"]');
 
-            // State'i tek değişkende tut, DOM query'sine güvenme.
-            // Streamlit re-render edip class'ı silebilir; biz authoritative kaynak oluruz.
-            let isOpen = false;
+            // ─── State management ───
+            // Streamlit her etkileşimde script'i yeniden çalıştırır (iframe yeniden
+            // oluşur). Bu yüzden state'i parentWin'de — KALICI bir yerde saklıyoruz.
+            // Listener'ı parent body'ye event delegation ile bağlıyoruz, iframe
+            // yıkılınca bile çalışmaya devam eder.
+            parentWin.__mtkSidebarOpen = parentWin.__mtkSidebarOpen || false;
 
-            const setOpen = (open) => {
-                isOpen = open;
+            const applyVisuals = () => {
+                const open = !!parentWin.__mtkSidebarOpen;
                 const sb = getSidebar();
+                const b = parentDoc.getElementById('mtk-mobile-menu');
+                const bd = parentDoc.getElementById('mtk-mobile-backdrop');
                 if (sb) {
                     if (open) sb.classList.add('mtk-open');
-                    else      sb.classList.remove('mtk-open');
+                    else sb.classList.remove('mtk-open');
                 }
-                if (open) {
-                    btn.classList.add('open');
-                    backdrop.classList.add('show');
-                    btn.setAttribute('aria-label', 'Kapat');
-                } else {
-                    btn.classList.remove('open');
-                    backdrop.classList.remove('show');
-                    btn.setAttribute('aria-label', 'Menu');
+                if (b) {
+                    if (open) {
+                        b.classList.add('open');
+                        b.setAttribute('aria-label', 'Kapat');
+                    } else {
+                        b.classList.remove('open');
+                        b.setAttribute('aria-label', 'Menu');
+                    }
+                }
+                if (bd) {
+                    if (open) bd.classList.add('show');
+                    else bd.classList.remove('show');
                 }
             };
 
-            btn.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                setOpen(!isOpen);
-            }, true); // capture phase — Streamlit'in event'i yakalamasından önce çalış
+            parentWin.__mtkSetSidebarOpen = (open) => {
+                parentWin.__mtkSidebarOpen = !!open;
+                applyVisuals();
+            };
 
-            backdrop.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                setOpen(false);
-            }, true);
+            // ─── Event delegation: parent body'ye bir KEZ bağla ───
+            if (!parentDoc.body.dataset.mtkClickBound) {
+                parentDoc.body.dataset.mtkClickBound = '1';
+                parentDoc.body.addEventListener('click', function(e) {
+                    const inBtn = e.target.closest && e.target.closest('#mtk-mobile-menu');
+                    if (inBtn) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        parentWin.__mtkSetSidebarOpen(!parentWin.__mtkSidebarOpen);
+                        return;
+                    }
+                    const inBd = e.target.closest && e.target.closest('#mtk-mobile-backdrop');
+                    if (inBd) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        parentWin.__mtkSetSidebarOpen(false);
+                    }
+                }, true); // capture phase — Streamlit'ten önce yakala
+            }
 
-            // Streamlit rerun olunca class'ı silmiş olabilir — düzenli senkronize et.
-            const syncInterval = parentWin.setInterval(() => {
-                const sb = getSidebar();
-                if (!sb) return;
-                const hasClass = sb.classList.contains('mtk-open');
-                if (isOpen && !hasClass) {
-                    sb.classList.add('mtk-open');
-                } else if (!isOpen && hasClass) {
-                    sb.classList.remove('mtk-open');
-                }
-            }, 400);
+            // ─── State'i DOM'a düzenli yansıt (Streamlit rerun class'ı silebilir) ───
+            if (parentWin.__mtkSyncInterval) {
+                parentWin.clearInterval(parentWin.__mtkSyncInterval);
+            }
+            parentWin.__mtkSyncInterval = parentWin.setInterval(applyVisuals, 350);
 
-            // PDF yüklenince otomatik kapat
+            // ─── PDF yüklenince otomatik kapat ───
             const watchUpload = () => {
                 const input = parentDoc.querySelector(
                     'section[data-testid="stSidebar"] input[type="file"]'
@@ -2882,7 +2910,7 @@ def force_open_sidebar() -> None:
                 if (!input || input.dataset.mtkBound === '1') return;
                 input.dataset.mtkBound = '1';
                 input.addEventListener('change', () => {
-                    parentWin.setTimeout(() => setOpen(false), 600);
+                    parentWin.setTimeout(() => parentWin.__mtkSetSidebarOpen(false), 600);
                 });
             };
             watchUpload();
@@ -2890,8 +2918,8 @@ def force_open_sidebar() -> None:
             parentWin.setTimeout(watchUpload, 1600);
             parentWin.setTimeout(watchUpload, 3500);
 
-            // Başlangıçta kapalı dur (kullanıcı içeriği görsün)
-            setOpen(false);
+            // İlk yüklemede mevcut state'i uygula (default: kapalı)
+            applyVisuals();
         })();
         </script>
         """,
