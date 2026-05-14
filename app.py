@@ -22,7 +22,10 @@ st.set_page_config(
     page_title="PDF Assistant — mtk.",
     page_icon="📄",
     layout="wide",
-    initial_sidebar_state="expanded",
+    # 'auto': desktop'ta açık, mobilde kapalı başlar — Streamlit zaten
+    # ekran boyutuna göre karar verir. force_open_sidebar() desktop'ta
+    # ek olarak garantili açar.
+    initial_sidebar_state="auto",
 )
 
 load_dotenv()
@@ -2548,28 +2551,52 @@ def inject_theme() -> None:
 
             /* ─── Responsive: telefon (≤640px) ─── */
             @media (max-width: 640px) {
-                /* Sidebar: ekrana göre %78, asla 16rem'i geçmesin. Açık iken
-                   bile ana içerik biraz görünsün, kapalıyken hamburger
-                   butonuyla açılır. */
+                /* Sidebar: ekrana göre %82, asla 18rem'i geçmesin. */
                 section[data-testid="stSidebar"],
                 section[data-testid="stSidebar"] > div:first-child,
                 section[data-testid="stSidebar"][aria-expanded="true"] {
                     min-width: 0 !important;
-                    max-width: min(78vw, 16rem) !important;
-                    width: min(78vw, 16rem) !important;
+                    max-width: min(82vw, 18rem) !important;
+                    width: min(82vw, 18rem) !important;
+                    z-index: 999 !important;
+                    box-shadow: 0 0 40px rgba(0,0,0,0.6);
                 }
-                /* Sidebar kapalıyken görünmesin (Streamlit zaten transform
-                   uygular ama bazı versiyonlarda kalıntı kalıyor) */
+                /* Sidebar kapalı: ekran dışına kay — visibility yok, animasyon korunsun */
                 section[data-testid="stSidebar"][aria-expanded="false"] {
                     transform: translateX(-100%) !important;
-                    visibility: hidden;
                 }
-                /* Hamburger menü butonunu daha görünür yap */
+
+                /* Top-brand mobilde gizli — hamburger butonu için yer açıyor.
+                   Marka zaten ana hero'da büyük şekilde görünüyor. */
+                .top-brand { display: none !important; }
+                .block-container { padding-top: 1.2rem !important; }
+
+                /* Hamburger butonu: sol üstte, üstte, belirgin */
                 [data-testid="collapsedControl"] {
-                    background: rgba(17, 17, 19, 0.92) !important;
-                    border: 1px solid #2a2a2e !important;
-                    border-radius: 10px !important;
-                    backdrop-filter: blur(10px);
+                    position: fixed !important;
+                    top: 12px !important;
+                    left: 12px !important;
+                    z-index: 1000 !important;
+                    background: rgba(201, 240, 107, 0.96) !important;
+                    border: 1px solid #c9f06b !important;
+                    border-radius: 12px !important;
+                    padding: 8px !important;
+                    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+                }
+                [data-testid="collapsedControl"] button,
+                [data-testid="collapsedControl"] svg {
+                    color: #0a0a0b !important;
+                    fill: #0a0a0b !important;
+                }
+
+                /* Sidebar açıkken sayfada arka plana karartma yapsın (mobil overlay) */
+                section[data-testid="stSidebar"][aria-expanded="true"]::after {
+                    content: "";
+                    position: fixed;
+                    top: 0; right: -100vw; bottom: 0;
+                    width: 100vw;
+                    background: rgba(0,0,0,0.5);
+                    pointer-events: none;
                 }
 
                 .block-container {
@@ -2713,22 +2740,52 @@ def render_language_switcher() -> None:
 
 
 def force_open_sidebar() -> None:
-    """Desktop'ta sidebar'ı kullanıcıya hatırlatmak için otomatik açar.
-    Mobilde (≤640px) bu hiç çalışmaz — kullanıcı kendi hamburger menüsünden
-    açar, böylece sidebar tüm ekranı kaplamaz."""
+    """Desktop'ta sidebar'ı garantili açar. Mobilde dokunmaz — kullanıcı
+    hamburger menüden kendi açar. Ayrıca mobilde: kullanıcı dosya yüklediğinde
+    sidebar otomatik kapanır ki ana içerik (özet butonu vs.) görünsün."""
     components.html(
         """
         <script>
-            const isMobile = window.parent.matchMedia('(max-width: 640px)').matches;
+            const parentWin = window.parent;
+            const parentDoc = parentWin.document;
+            const isMobile = parentWin.matchMedia('(max-width: 640px)').matches;
+
+            // Desktop: garantili aç
+            const openSidebar = () => {
+                const btn = parentDoc.querySelector('[data-testid="collapsedControl"] button');
+                if (btn) btn.click();
+            };
+            const closeSidebar = () => {
+                const sidebar = parentDoc.querySelector('section[data-testid="stSidebar"]');
+                if (!sidebar) return;
+                const closeBtn = sidebar.querySelector('button[data-testid="baseButton-headerNoPadding"]')
+                    || sidebar.querySelector('[data-testid="stSidebarCollapseButton"] button')
+                    || sidebar.querySelector('button[kind="header"]');
+                if (closeBtn) closeBtn.click();
+            };
+
             if (!isMobile) {
-                const openSidebar = () => {
-                    const parentDoc = window.parent.document;
-                    const expandButton = parentDoc.querySelector('[data-testid="collapsedControl"] button');
-                    if (expandButton) expandButton.click();
-                };
                 openSidebar();
-                window.setTimeout(openSidebar, 180);
-                window.setTimeout(openSidebar, 900);
+                parentWin.setTimeout(openSidebar, 180);
+                parentWin.setTimeout(openSidebar, 900);
+            } else {
+                // Mobil: dosya yüklenince sidebar'ı kapat. file_uploader'ın input'unu
+                // izle, kullanıcı dosya seçtiğinde once kapansın.
+                const watchUpload = () => {
+                    const input = parentDoc.querySelector(
+                        'section[data-testid="stSidebar"] input[type="file"]'
+                    );
+                    if (!input || input.dataset.mtkBound === '1') return;
+                    input.dataset.mtkBound = '1';
+                    input.addEventListener('change', () => {
+                        // Streamlit upload'u işlemesi için kısa bir gecikme
+                        parentWin.setTimeout(closeSidebar, 600);
+                    });
+                };
+                watchUpload();
+                parentWin.setTimeout(watchUpload, 500);
+                parentWin.setTimeout(watchUpload, 1500);
+                parentWin.setTimeout(watchUpload, 3500);
             }
         </script>
         """,
@@ -3135,4 +3192,3 @@ if st.session_state.chunks:
         render_chat_tab()
 else:
     render_empty_state()
-# SENTI
