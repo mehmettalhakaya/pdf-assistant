@@ -2699,233 +2699,155 @@ def render_language_switcher() -> None:
 
 
 def force_open_sidebar() -> None:
-    """Desktop'ta sidebar'ı garantili açar. Mobilde kendi özel hamburger
-    butonumuzu inject eder — Streamlit'in dahili butonuna güvenmiyor."""
+    """Desktop'ta sidebar'ı garantili açar. Mobilde özel hamburger butonu enjekte eder.
+
+    Tasarım: olabildiğince basit. Inline `onclick` attribute'leri kullanıyoruz,
+    fonksiyonlar `window` üzerinde tanımlı. Class toggle direkt — separate state
+    değişkeni yok. Bu yaklaşım Streamlit'in iframe rerun'larından etkilenmez.
+    """
     components.html(
-        """
+        r"""
         <script>
         (function() {
-            const parentWin = window.parent;
-            const parentDoc = parentWin.document;
-            const isMobile = parentWin.matchMedia('(max-width: 640px)').matches;
+            const W = window.parent;
+            const D = W.document;
 
-            // Desktop: Streamlit'in kendi collapse butonunu klikle, aç.
-            if (!isMobile) {
-                const openSidebar = () => {
-                    const btn = parentDoc.querySelector('[data-testid="collapsedControl"] button')
-                        || parentDoc.querySelector('[data-testid="stSidebarCollapsedControl"] button');
-                    if (btn) btn.click();
+            // Desktop: Streamlit'in kendi collapse butonunu klikleyerek aç.
+            if (!W.matchMedia('(max-width: 640px)').matches) {
+                const open = () => {
+                    const b = D.querySelector('[data-testid="collapsedControl"] button')
+                        || D.querySelector('[data-testid="stSidebarCollapsedControl"] button');
+                    if (b) b.click();
                 };
-                openSidebar();
-                parentWin.setTimeout(openSidebar, 180);
-                parentWin.setTimeout(openSidebar, 900);
+                open(); W.setTimeout(open, 180); W.setTimeout(open, 900);
                 return;
             }
 
-            // ─── Mobil: Özel hamburger butonu + backdrop inject ───
-            // Eğer style+button+backdrop zaten var ise atla, yoksa oluştur.
-            // (Streamlit her rerun'da script'i çalıştırır; tek sefer DOM ekleriz.)
-            const existingStyle = parentDoc.getElementById('mtk-mobile-menu-style');
-            const existingBtn = parentDoc.getElementById('mtk-mobile-menu');
-            const existingBackdrop = parentDoc.getElementById('mtk-mobile-backdrop');
-
-            if (existingStyle && existingBtn && existingBackdrop) {
-                // DOM zaten hazır — sadece state senkronizasyonuna geç (aşağıda)
-            } else {
-                if (existingStyle) existingStyle.remove();
-                if (existingBtn) existingBtn.remove();
-                if (existingBackdrop) existingBackdrop.remove();
-
-            // Style: hamburger FAB
-            const style = parentDoc.createElement('style');
-            style.id = 'mtk-mobile-menu-style';
-            style.textContent = `
-              #mtk-mobile-menu {
-                position: fixed;
-                top: 12px; left: 12px;
-                z-index: 2000;
-                width: 44px; height: 44px;
-                background: #c9f06b;
-                border: none;
-                border-radius: 12px;
-                box-shadow: 0 6px 20px rgba(0,0,0,0.5);
-                cursor: pointer;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                padding: 0;
-                pointer-events: auto;
-                /* Açıldığında sağa kaysın — sidebar'ın dışında, ana içeriğin
-                   üstünde tıklanabilir kalsın */
-                transition: left 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
-                            transform 0.15s,
-                            background 0.2s;
-              }
-              #mtk-mobile-menu:active { transform: scale(0.92); }
-              #mtk-mobile-menu.open {
-                left: calc(min(82vw, 18rem) + 12px);
-                background: #6bc9f0;
-              }
-              #mtk-mobile-menu .bar {
-                display: block;
-                width: 20px; height: 2.5px;
-                background: #0a0a0b;
-                margin: 2.5px 0;
-                border-radius: 2px;
-                pointer-events: none; /* Tıklamayı butona iletsin */
-                transition: transform 0.2s, opacity 0.2s;
-              }
-              #mtk-mobile-menu.open .bar:nth-child(1) {
-                transform: translateY(7.5px) rotate(45deg);
-              }
-              #mtk-mobile-menu.open .bar:nth-child(2) {
-                opacity: 0;
-              }
-              #mtk-mobile-menu.open .bar:nth-child(3) {
-                transform: translateY(-7.5px) rotate(-45deg);
-              }
-
-              #mtk-mobile-backdrop {
-                position: fixed;
-                top: 0; left: 0; right: 0; bottom: 0;
-                background: rgba(0,0,0,0.55);
-                z-index: 1500;
-                opacity: 0;
-                visibility: hidden;
-                transition: opacity 0.25s, visibility 0.25s;
-              }
-              #mtk-mobile-backdrop.show {
-                opacity: 1;
-                visibility: visible;
-              }
-
-              /* Sidebar'ı mobilde transform ile yönet */
-              section[data-testid="stSidebar"] {
-                position: fixed !important;
-                top: 0; left: 0; bottom: 0;
-                height: 100vh !important;
-                z-index: 1700 !important;
-                transform: translateX(-100%);
-                transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
-                width: min(82vw, 18rem) !important;
-                max-width: min(82vw, 18rem) !important;
-                min-width: 0 !important;
-                box-shadow: 0 0 40px rgba(0,0,0,0.6);
-              }
-              section[data-testid="stSidebar"].mtk-open {
-                transform: translateX(0) !important;
-              }
-              /* Streamlit'in kendi collapse butonunu mobilde sakla */
-              [data-testid="collapsedControl"],
-              [data-testid="stSidebarCollapsedControl"],
-              [data-testid="stSidebarCollapseButton"] {
-                display: none !important;
-              }
-            `;
-            parentDoc.head.appendChild(style);
-
-            // Hamburger button
-            const btn = parentDoc.createElement('button');
-            btn.id = 'mtk-mobile-menu';
-            btn.setAttribute('aria-label', 'Menu');
-            btn.innerHTML = '<span class="bar"></span><span class="bar"></span><span class="bar"></span>';
-            parentDoc.body.appendChild(btn);
-
-            // Backdrop
-            const backdrop = parentDoc.createElement('div');
-            backdrop.id = 'mtk-mobile-backdrop';
-            parentDoc.body.appendChild(backdrop);
-            } // end of if (!existingBtn || !existingBackdrop || !existingStyle)
-
-            const getSidebar = () => parentDoc.querySelector('section[data-testid="stSidebar"]');
-
-            // ─── State management ───
-            // Streamlit her etkileşimde script'i yeniden çalıştırır (iframe yeniden
-            // oluşur). Bu yüzden state'i parentWin'de — KALICI bir yerde saklıyoruz.
-            // Listener'ı parent body'ye event delegation ile bağlıyoruz, iframe
-            // yıkılınca bile çalışmaya devam eder.
-            parentWin.__mtkSidebarOpen = parentWin.__mtkSidebarOpen || false;
-
-            const applyVisuals = () => {
-                const open = !!parentWin.__mtkSidebarOpen;
-                const sb = getSidebar();
-                const b = parentDoc.getElementById('mtk-mobile-menu');
-                const bd = parentDoc.getElementById('mtk-mobile-backdrop');
-                if (sb) {
-                    if (open) sb.classList.add('mtk-open');
-                    else sb.classList.remove('mtk-open');
-                }
-                if (b) {
-                    if (open) {
-                        b.classList.add('open');
-                        b.setAttribute('aria-label', 'Kapat');
-                    } else {
-                        b.classList.remove('open');
-                        b.setAttribute('aria-label', 'Menu');
-                    }
-                }
-                if (bd) {
-                    if (open) bd.classList.add('show');
-                    else bd.classList.remove('show');
-                }
+            // ─── MOBİL ───────────────────────────────────────────────────
+            // Global toggle fonksiyonları. Inline onclick'lerden çağrılır.
+            // Streamlit re-render olsa bile bu W'da kalır.
+            W.__mtkToggle = function() {
+                const sb = D.querySelector('section[data-testid="stSidebar"]');
+                if (!sb) return false;
+                const isOpen = sb.classList.toggle('mtk-open');
+                const b = D.getElementById('mtk-mobile-menu');
+                const bd = D.getElementById('mtk-mobile-backdrop');
+                if (b) b.classList.toggle('open', isOpen);
+                if (bd) bd.classList.toggle('show', isOpen);
+                return false;
+            };
+            W.__mtkClose = function() {
+                const sb = D.querySelector('section[data-testid="stSidebar"]');
+                const b = D.getElementById('mtk-mobile-menu');
+                const bd = D.getElementById('mtk-mobile-backdrop');
+                if (sb) sb.classList.remove('mtk-open');
+                if (b) b.classList.remove('open');
+                if (bd) bd.classList.remove('show');
+                return false;
             };
 
-            parentWin.__mtkSetSidebarOpen = (open) => {
-                parentWin.__mtkSidebarOpen = !!open;
-                applyVisuals();
-            };
+            // Style: yalnızca yoksa ekle.
+            if (!D.getElementById('mtk-mobile-menu-style')) {
+                const style = D.createElement('style');
+                style.id = 'mtk-mobile-menu-style';
+                style.textContent = `
+                  #mtk-mobile-menu {
+                    position: fixed; top: 12px; left: 12px;
+                    z-index: 2147483000;
+                    width: 44px; height: 44px;
+                    background: #c9f06b; border: none; border-radius: 12px;
+                    box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+                    cursor: pointer; padding: 0;
+                    display: flex; flex-direction: column;
+                    align-items: center; justify-content: center;
+                    transition: left 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+                                transform 0.15s, background 0.2s;
+                    -webkit-tap-highlight-color: transparent;
+                  }
+                  #mtk-mobile-menu:active { transform: scale(0.92); }
+                  #mtk-mobile-menu.open {
+                    left: calc(min(82vw, 18rem) + 12px);
+                    background: #6bc9f0;
+                  }
+                  #mtk-mobile-menu .bar {
+                    display: block; width: 20px; height: 2.5px;
+                    background: #0a0a0b; margin: 2.5px 0;
+                    border-radius: 2px; pointer-events: none;
+                    transition: transform 0.2s, opacity 0.2s;
+                  }
+                  #mtk-mobile-menu.open .bar:nth-child(1) { transform: translateY(7.5px) rotate(45deg); }
+                  #mtk-mobile-menu.open .bar:nth-child(2) { opacity: 0; }
+                  #mtk-mobile-menu.open .bar:nth-child(3) { transform: translateY(-7.5px) rotate(-45deg); }
 
-            // ─── Event delegation: parent body'ye bir KEZ bağla ───
-            if (!parentDoc.body.dataset.mtkClickBound) {
-                parentDoc.body.dataset.mtkClickBound = '1';
-                parentDoc.body.addEventListener('click', function(e) {
-                    const inBtn = e.target.closest && e.target.closest('#mtk-mobile-menu');
-                    if (inBtn) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        parentWin.__mtkSetSidebarOpen(!parentWin.__mtkSidebarOpen);
-                        return;
-                    }
-                    const inBd = e.target.closest && e.target.closest('#mtk-mobile-backdrop');
-                    if (inBd) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        parentWin.__mtkSetSidebarOpen(false);
-                    }
-                }, true); // capture phase — Streamlit'ten önce yakala
+                  #mtk-mobile-backdrop {
+                    position: fixed; inset: 0;
+                    background: rgba(0,0,0,0.55);
+                    z-index: 2147482000;
+                    opacity: 0; visibility: hidden;
+                    transition: opacity 0.25s, visibility 0.25s;
+                    -webkit-tap-highlight-color: transparent;
+                  }
+                  #mtk-mobile-backdrop.show { opacity: 1; visibility: visible; }
+
+                  section[data-testid="stSidebar"] {
+                    position: fixed !important;
+                    top: 0; left: 0; bottom: 0;
+                    height: 100vh !important;
+                    z-index: 2147481000 !important;
+                    transform: translateX(-100%);
+                    transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+                    width: min(82vw, 18rem) !important;
+                    max-width: min(82vw, 18rem) !important;
+                    min-width: 0 !important;
+                    box-shadow: 0 0 40px rgba(0,0,0,0.6);
+                  }
+                  section[data-testid="stSidebar"].mtk-open { transform: translateX(0) !important; }
+
+                  [data-testid="collapsedControl"],
+                  [data-testid="stSidebarCollapsedControl"],
+                  [data-testid="stSidebarCollapseButton"] { display: none !important; }
+                `;
+                D.head.appendChild(style);
             }
 
-            // ─── State'i DOM'a düzenli yansıt (Streamlit rerun class'ı silebilir) ───
-            if (parentWin.__mtkSyncInterval) {
-                parentWin.clearInterval(parentWin.__mtkSyncInterval);
+            // Hamburger button: inline onclick — Streamlit iframe rerun'undan
+            // etkilenmez. Listener kayıp olmaz.
+            if (!D.getElementById('mtk-mobile-menu')) {
+                const b = D.createElement('button');
+                b.id = 'mtk-mobile-menu';
+                b.type = 'button';
+                b.setAttribute('aria-label', 'Menu');
+                b.setAttribute('onclick', 'return window.__mtkToggle();');
+                b.setAttribute('ontouchend', 'return window.__mtkToggle();');
+                b.innerHTML = '<span class="bar"></span><span class="bar"></span><span class="bar"></span>';
+                D.body.appendChild(b);
             }
-            parentWin.__mtkSyncInterval = parentWin.setInterval(applyVisuals, 350);
 
-            // ─── PDF yüklenince otomatik kapat ───
-            const watchUpload = () => {
-                const input = parentDoc.querySelector(
-                    'section[data-testid="stSidebar"] input[type="file"]'
-                );
-                if (!input || input.dataset.mtkBound === '1') return;
-                input.dataset.mtkBound = '1';
-                input.addEventListener('change', () => {
-                    parentWin.setTimeout(() => parentWin.__mtkSetSidebarOpen(false), 600);
-                });
+            // Backdrop: inline onclick → close
+            if (!D.getElementById('mtk-mobile-backdrop')) {
+                const bd = D.createElement('div');
+                bd.id = 'mtk-mobile-backdrop';
+                bd.setAttribute('onclick', 'return window.__mtkClose();');
+                bd.setAttribute('ontouchend', 'return window.__mtkClose();');
+                D.body.appendChild(bd);
+            }
+
+            // PDF yüklenince otomatik kapat
+            const watch = () => {
+                const inp = D.querySelector('section[data-testid="stSidebar"] input[type="file"]');
+                if (!inp || inp.dataset.mtkBound === '1') return;
+                inp.dataset.mtkBound = '1';
+                inp.addEventListener('change', () => W.setTimeout(W.__mtkClose, 600));
             };
-            watchUpload();
-            parentWin.setTimeout(watchUpload, 600);
-            parentWin.setTimeout(watchUpload, 1600);
-            parentWin.setTimeout(watchUpload, 3500);
-
-            // İlk yüklemede mevcut state'i uygula (default: kapalı)
-            applyVisuals();
+            watch();
+            W.setTimeout(watch, 600);
+            W.setTimeout(watch, 1600);
+            W.setTimeout(watch, 3500);
         })();
         </script>
         """,
         height=0,
     )
-
 
 def render_hero() -> None:
     has_pdf = bool(st.session_state.chunks)
