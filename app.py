@@ -1910,8 +1910,45 @@ def inject_theme() -> None:
                 }
             }
 
-            /* ─── Sidebar ─── */
-            section[data-testid="stSidebar"] {
+            /* ─── Sidebar tamamen gizli — kontroller ana sayfada ─── */
+            section[data-testid="stSidebar"],
+            [data-testid="collapsedControl"],
+            [data-testid="stSidebarCollapsedControl"],
+            [data-testid="stSidebarCollapseButton"] {
+                display: none !important;
+            }
+
+            /* ─── Kontrol paneli (sidebar yerine) ─── */
+            .controls-shell {
+                position: relative;
+                z-index: 5;
+                background: linear-gradient(180deg, rgba(17,17,19,0.85), rgba(17,17,19,0.65));
+                border: 1px solid var(--border);
+                border-radius: 16px;
+                padding: 18px 20px 10px;
+                margin-bottom: 20px;
+                backdrop-filter: blur(10px);
+            }
+            .controls-brand {
+                font-family: 'Instrument Serif', serif;
+                font-size: 1.6rem;
+                color: #fff;
+                letter-spacing: -0.02em;
+                margin-bottom: 12px;
+                line-height: 1;
+            }
+            .controls-brand span { color: var(--accent); }
+
+            @media (max-width: 640px) {
+                .controls-shell {
+                    padding: 14px 14px 6px;
+                    border-radius: 14px;
+                }
+                .controls-brand { font-size: 1.4rem; }
+            }
+
+            /* Eski sidebar stillerini placeholder olarak bırak (zarar yok) */
+            section[data-testid="stSidebar"]-disabled {
                 background: rgba(17, 17, 19, 0.96);
                 border-right: 1px solid var(--border);
                 min-width: 21rem !important;
@@ -2699,156 +2736,9 @@ def render_language_switcher() -> None:
 
 
 def force_open_sidebar() -> None:
-    """Desktop'ta sidebar'ı garantili açar. Mobilde özel hamburger butonu enjekte eder.
-
-    Strateji: state body class'ında ('mtk-sidebar-on'). Streamlit body'ye
-    dokunmadığı için bu en stabil yerdir. CSS tüm görsel toggle'ı body
-    class'tan yapar — class varsa sidebar açık, yoksa kapalı. Tek bir kaynak,
-    çok basit, çok dayanıklı.
-    """
-    components.html(
-        r"""
-        <script>
-        (function() {
-            const W = window.parent;
-            const D = W.document;
-
-            // Desktop: Streamlit'in kendi collapse butonunu klikleyerek aç.
-            if (!W.matchMedia('(max-width: 640px)').matches) {
-                const open = () => {
-                    const b = D.querySelector('[data-testid="collapsedControl"] button')
-                        || D.querySelector('[data-testid="stSidebarCollapsedControl"] button');
-                    if (b) b.click();
-                };
-                open(); W.setTimeout(open, 180); W.setTimeout(open, 900);
-                return;
-            }
-
-            // ─── MOBİL: tek state kaynağı = body class ─────────────────
-            W.__mtkToggle = function() {
-                D.body.classList.toggle('mtk-sidebar-on');
-                return false;
-            };
-            W.__mtkClose = function() {
-                D.body.classList.remove('mtk-sidebar-on');
-                return false;
-            };
-
-            // Style: yalnızca yoksa ekle.
-            if (!D.getElementById('mtk-mobile-menu-style')) {
-                const style = D.createElement('style');
-                style.id = 'mtk-mobile-menu-style';
-                style.textContent = `
-                  /* Sidebar: kapalı varsayılan, body'de class yoksa offscreen */
-                  section[data-testid="stSidebar"] {
-                    position: fixed !important;
-                    top: 0; left: 0; bottom: 0;
-                    height: 100vh !important;
-                    z-index: 2147481000 !important;
-                    transform: translateX(-100%) !important;
-                    transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
-                    width: min(82vw, 18rem) !important;
-                    max-width: min(82vw, 18rem) !important;
-                    min-width: 0 !important;
-                    box-shadow: 0 0 40px rgba(0,0,0,0.6);
-                  }
-                  body.mtk-sidebar-on section[data-testid="stSidebar"] {
-                    transform: translateX(0) !important;
-                  }
-
-                  /* Hamburger button */
-                  #mtk-mobile-menu {
-                    position: fixed; top: 12px; left: 12px;
-                    z-index: 2147483000;
-                    width: 44px; height: 44px;
-                    background: #c9f06b; border: none; border-radius: 12px;
-                    box-shadow: 0 6px 20px rgba(0,0,0,0.5);
-                    cursor: pointer; padding: 0;
-                    display: flex; flex-direction: column;
-                    align-items: center; justify-content: center;
-                    transition: left 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
-                                transform 0.15s, background 0.2s;
-                    -webkit-tap-highlight-color: transparent;
-                  }
-                  #mtk-mobile-menu:active { transform: scale(0.92); }
-                  body.mtk-sidebar-on #mtk-mobile-menu {
-                    left: calc(min(82vw, 18rem) + 12px);
-                    background: #6bc9f0;
-                  }
-                  #mtk-mobile-menu .bar {
-                    display: block; width: 20px; height: 2.5px;
-                    background: #0a0a0b; margin: 2.5px 0;
-                    border-radius: 2px; pointer-events: none;
-                    transition: transform 0.2s, opacity 0.2s;
-                  }
-                  body.mtk-sidebar-on #mtk-mobile-menu .bar:nth-child(1) {
-                    transform: translateY(7.5px) rotate(45deg);
-                  }
-                  body.mtk-sidebar-on #mtk-mobile-menu .bar:nth-child(2) {
-                    opacity: 0;
-                  }
-                  body.mtk-sidebar-on #mtk-mobile-menu .bar:nth-child(3) {
-                    transform: translateY(-7.5px) rotate(-45deg);
-                  }
-
-                  /* Backdrop */
-                  #mtk-mobile-backdrop {
-                    position: fixed; inset: 0;
-                    background: rgba(0,0,0,0.55);
-                    z-index: 2147482000;
-                    opacity: 0; visibility: hidden;
-                    transition: opacity 0.25s, visibility 0.25s;
-                    -webkit-tap-highlight-color: transparent;
-                  }
-                  body.mtk-sidebar-on #mtk-mobile-backdrop {
-                    opacity: 1; visibility: visible;
-                  }
-
-                  /* Streamlit'in kendi collapse butonu mobilde gizli */
-                  [data-testid="collapsedControl"],
-                  [data-testid="stSidebarCollapsedControl"],
-                  [data-testid="stSidebarCollapseButton"] {
-                    display: none !important;
-                  }
-                `;
-                D.head.appendChild(style);
-            }
-
-            // Buton oluştur (sadece yoksa)
-            if (!D.getElementById('mtk-mobile-menu')) {
-                const b = D.createElement('button');
-                b.id = 'mtk-mobile-menu';
-                b.type = 'button';
-                b.setAttribute('aria-label', 'Menu');
-                b.setAttribute('onclick', 'return window.__mtkToggle();');
-                b.innerHTML = '<span class="bar"></span><span class="bar"></span><span class="bar"></span>';
-                D.body.appendChild(b);
-            }
-
-            // Backdrop oluştur (sadece yoksa)
-            if (!D.getElementById('mtk-mobile-backdrop')) {
-                const bd = D.createElement('div');
-                bd.id = 'mtk-mobile-backdrop';
-                bd.setAttribute('onclick', 'return window.__mtkClose();');
-                D.body.appendChild(bd);
-            }
-
-            // PDF yüklenince otomatik kapat
-            const watch = () => {
-                const inp = D.querySelector('section[data-testid="stSidebar"] input[type="file"]');
-                if (!inp || inp.dataset.mtkBound === '1') return;
-                inp.dataset.mtkBound = '1';
-                inp.addEventListener('change', () => W.setTimeout(W.__mtkClose, 600));
-            };
-            watch();
-            W.setTimeout(watch, 600);
-            W.setTimeout(watch, 1600);
-            W.setTimeout(watch, 3500);
-        })();
-        </script>
-        """,
-        height=0,
-    )
+    """No-op: sidebar artık kullanılmıyor (kontroller ana sayfada).
+    Streamlit sidebar'ı CSS'le tamamen gizleniyor."""
+    pass
 
 def render_hero() -> None:
     has_pdf = bool(st.session_state.chunks)
@@ -3191,50 +3081,60 @@ def render_chat_tab() -> None:
 # Main app
 ensure_state()
 inject_theme()
-force_open_sidebar()
 render_top_brand()
 render_cursor_glow()
 inject_cursor_script()
 
-with st.sidebar:
-    render_sidebar_brand()
+# ─── Kontrol paneli — sidebar yerine ana akışın başında ──────────────
+# Dil seçici + PDF yükleme + Temizle. Hem desktop hem mobilde aynı yerde.
+# Streamlit sidebar'ını CSS ile gizliyoruz (hamburger karmaşası yok).
+st.markdown('<div class="controls-shell">', unsafe_allow_html=True)
+st.markdown(f'<div class="controls-brand">mtk<span>.</span></div>', unsafe_allow_html=True)
+
+ctrl_lang, ctrl_upload, ctrl_clear = st.columns([1, 2, 1])
+
+with ctrl_lang:
     render_language_switcher()
 
-    st.markdown("---")
+with ctrl_upload:
+    uploaded_file = st.file_uploader(
+        t("upload"),
+        type=["pdf"],
+        label_visibility="visible",
+    )
 
-    uploaded_file = st.file_uploader(t("upload"), type=["pdf"])
-
-    if uploaded_file is None and st.session_state.last_file_signature is not None:
-        clear_workspace()
-
-    if uploaded_file is not None:
-        file_bytes = uploaded_file.getvalue()
-        file_signature = hashlib.sha1(file_bytes).hexdigest()
-        if st.session_state.last_file_signature != file_signature:
-            try:
-                new_chunks = extract_pdf_chunks(file_bytes)
-            except PDFLoadError as err:
-                st.error(t(err.key).format(**err.fmt))
-                clear_workspace()
-            else:
-                st.session_state.chunks = new_chunks
-                st.session_state.summary = None
-                st.session_state.chat_history = []
-                st.session_state.last_file_signature = file_signature
-                st.session_state.last_file_name = uploaded_file.name
-
-                total_chars = sum(len(c["text"]) for c in new_chunks)
-                if total_chars > MAX_PDF_TEXT_CHARS:
-                    st.warning(t("warn_huge_text").format(chars=f"{total_chars:,}"))
-
-    st.markdown("---")
-
-    if st.button(t("clear"), use_container_width=True):
+with ctrl_clear:
+    if st.button(t("clear"), use_container_width=True, key="btn_clear_main"):
         clear_workspace()
         st.rerun()
 
-    if not GROQ_API_KEY:
-        st.error(t("no_api_key"))
+if uploaded_file is None and st.session_state.last_file_signature is not None:
+    clear_workspace()
+
+if uploaded_file is not None:
+    file_bytes = uploaded_file.getvalue()
+    file_signature = hashlib.sha1(file_bytes).hexdigest()
+    if st.session_state.last_file_signature != file_signature:
+        try:
+            new_chunks = extract_pdf_chunks(file_bytes)
+        except PDFLoadError as err:
+            st.error(t(err.key).format(**err.fmt))
+            clear_workspace()
+        else:
+            st.session_state.chunks = new_chunks
+            st.session_state.summary = None
+            st.session_state.chat_history = []
+            st.session_state.last_file_signature = file_signature
+            st.session_state.last_file_name = uploaded_file.name
+
+            total_chars = sum(len(c["text"]) for c in new_chunks)
+            if total_chars > MAX_PDF_TEXT_CHARS:
+                st.warning(t("warn_huge_text").format(chars=f"{total_chars:,}"))
+
+if not GROQ_API_KEY:
+    st.error(t("no_api_key"))
+
+st.markdown('</div>', unsafe_allow_html=True)
 
 render_hero()
 render_marquee()

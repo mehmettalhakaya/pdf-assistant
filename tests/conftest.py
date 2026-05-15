@@ -106,6 +106,7 @@ def _build_streamlit_stub() -> types.ModuleType:
     st.radio = lambda *a, **k: "tr"
     st.file_uploader = lambda *a, **k: None
     st.tabs = lambda labels: [_Ctx() for _ in labels]
+    st.columns = lambda spec, **k: [_Ctx() for _ in (spec if isinstance(spec, (list, tuple)) else range(spec))]
     st.empty = lambda: _Empty()
     st.progress = lambda *a, **k: _Progress()
 
