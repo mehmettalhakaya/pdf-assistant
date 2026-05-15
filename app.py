@@ -1058,16 +1058,61 @@ def _find_first_existing_path(paths: List[str]) -> Optional[str]:
     return None
 
 
-def _font_candidates(*names: str) -> List[str]:
+def _font_candidates(*names: str, bold: bool = False, serif: bool = False) -> List[str]:
+    """Sıralı font arama yolları. Linux'ta DejaVu/Liberation gibi Türkçe
+    karakterleri (ı, ğ, ş) destekleyen fontları tercih ediyoruz — ReportLab'in
+    yerleşik Helvetica/Times'ı Latin Extended-A desteklemez, kareler oluşur.
+
+    Args:
+        names: Windows font dosya adları (öncelik)
+        bold: True ise bold varyantları tercih et
+        serif: True ise serif varyantları tercih et (heading'ler için)
+    """
     windir = os.environ.get("WINDIR", r"C:\Windows")
     win_fonts = os.path.join(windir, "Fonts")
     paths = [os.path.join(win_fonts, name) for name in names]
+
+    # Linux paths — packages.txt fonts-dejavu-core fonts-dejavu-extra ile gelir
+    linux_paths = []
+    if serif:
+        if bold:
+            linux_paths.extend([
+                "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
+            ])
+        else:
+            linux_paths.extend([
+                "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+            ])
+    else:
+        if bold:
+            linux_paths.extend([
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            ])
+        else:
+            linux_paths.extend([
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            ])
+    paths.extend(linux_paths)
+
+    # macOS paths
     paths.extend([
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/Library/Fonts/Arial.ttf",
         "/Library/Fonts/Georgia.ttf",
     ])
+
+    # Repo'ya bundled fontlar (varsa) — son çare
+    here = os.path.dirname(os.path.abspath(__file__))
+    paths.extend([
+        os.path.join(here, "fonts", "DejaVuSans.ttf"),
+        os.path.join(here, "fonts", "DejaVuSans-Bold.ttf"),
+    ])
+
     return paths
 
 
@@ -1092,22 +1137,22 @@ def _register_summary_pdf_fonts() -> Dict[str, str]:
     fonts = {
         "body": _register_font_if_available(
             SUMMARY_PDF_FONTS["body"],
-            _font_candidates("segoeui.ttf", "arial.ttf", "calibri.ttf"),
+            _font_candidates("segoeui.ttf", "arial.ttf", "calibri.ttf", bold=False, serif=False),
             "Helvetica",
         ),
         "body_bold": _register_font_if_available(
             SUMMARY_PDF_FONTS["body_bold"],
-            _font_candidates("segoeuib.ttf", "arialbd.ttf", "calibrib.ttf"),
+            _font_candidates("segoeuib.ttf", "arialbd.ttf", "calibrib.ttf", bold=True, serif=False),
             "Helvetica-Bold",
         ),
         "heading": _register_font_if_available(
             SUMMARY_PDF_FONTS["heading"],
-            _font_candidates("georgia.ttf", "cambria.ttc", "segoeui.ttf"),
+            _font_candidates("georgia.ttf", "cambria.ttc", "segoeui.ttf", bold=False, serif=True),
             "Times-Roman",
         ),
         "heading_bold": _register_font_if_available(
             SUMMARY_PDF_FONTS["heading_bold"],
-            _font_candidates("georgiab.ttf", "cambriab.ttf", "segoeuib.ttf", "arialbd.ttf"),
+            _font_candidates("georgiab.ttf", "cambriab.ttf", "segoeuib.ttf", "arialbd.ttf", bold=True, serif=True),
             "Times-Bold",
         ),
     }
@@ -3087,65 +3132,4 @@ inject_cursor_script()
 
 # ─── Kontrol paneli — sidebar yerine ana akışın başında ──────────────
 # Dil seçici + PDF yükleme + Temizle. Hem desktop hem mobilde aynı yerde.
-# Streamlit sidebar'ını CSS ile gizliyoruz (hamburger karmaşası yok).
-st.markdown('<div class="controls-shell">', unsafe_allow_html=True)
-st.markdown(f'<div class="controls-brand">mtk<span>.</span></div>', unsafe_allow_html=True)
-
-ctrl_lang, ctrl_upload, ctrl_clear = st.columns([1, 2, 1])
-
-with ctrl_lang:
-    render_language_switcher()
-
-with ctrl_upload:
-    uploaded_file = st.file_uploader(
-        t("upload"),
-        type=["pdf"],
-        label_visibility="visible",
-    )
-
-with ctrl_clear:
-    if st.button(t("clear"), use_container_width=True, key="btn_clear_main"):
-        clear_workspace()
-        st.rerun()
-
-if uploaded_file is None and st.session_state.last_file_signature is not None:
-    clear_workspace()
-
-if uploaded_file is not None:
-    file_bytes = uploaded_file.getvalue()
-    file_signature = hashlib.sha1(file_bytes).hexdigest()
-    if st.session_state.last_file_signature != file_signature:
-        try:
-            new_chunks = extract_pdf_chunks(file_bytes)
-        except PDFLoadError as err:
-            st.error(t(err.key).format(**err.fmt))
-            clear_workspace()
-        else:
-            st.session_state.chunks = new_chunks
-            st.session_state.summary = None
-            st.session_state.chat_history = []
-            st.session_state.last_file_signature = file_signature
-            st.session_state.last_file_name = uploaded_file.name
-
-            total_chars = sum(len(c["text"]) for c in new_chunks)
-            if total_chars > MAX_PDF_TEXT_CHARS:
-                st.warning(t("warn_huge_text").format(chars=f"{total_chars:,}"))
-
-if not GROQ_API_KEY:
-    st.error(t("no_api_key"))
-
-st.markdown('</div>', unsafe_allow_html=True)
-
-render_hero()
-render_marquee()
-
-if st.session_state.chunks:
-    summary_tab, chat_tab = st.tabs([t("summary_tab"), t("chat_tab")])
-
-    with summary_tab:
-        render_summary_tab()
-
-    with chat_tab:
-        render_chat_tab()
-else:
-    render_empty_state()
+# Streamlit sidebar'ını CSS ile gizliyoruz (hamburger karmaşası y
