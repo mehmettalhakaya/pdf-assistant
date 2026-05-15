@@ -2701,9 +2701,10 @@ def render_language_switcher() -> None:
 def force_open_sidebar() -> None:
     """Desktop'ta sidebar'ı garantili açar. Mobilde özel hamburger butonu enjekte eder.
 
-    Tasarım: olabildiğince basit. Inline `onclick` attribute'leri kullanıyoruz,
-    fonksiyonlar `window` üzerinde tanımlı. Class toggle direkt — separate state
-    değişkeni yok. Bu yaklaşım Streamlit'in iframe rerun'larından etkilenmez.
+    Strateji: state body class'ında ('mtk-sidebar-on'). Streamlit body'ye
+    dokunmadığı için bu en stabil yerdir. CSS tüm görsel toggle'ı body
+    class'tan yapar — class varsa sidebar açık, yoksa kapalı. Tek bir kaynak,
+    çok basit, çok dayanıklı.
     """
     components.html(
         r"""
@@ -2723,26 +2724,13 @@ def force_open_sidebar() -> None:
                 return;
             }
 
-            // ─── MOBİL ───────────────────────────────────────────────────
-            // Global toggle fonksiyonları. Inline onclick'lerden çağrılır.
-            // Streamlit re-render olsa bile bu W'da kalır.
+            // ─── MOBİL: tek state kaynağı = body class ─────────────────
             W.__mtkToggle = function() {
-                const sb = D.querySelector('section[data-testid="stSidebar"]');
-                if (!sb) return false;
-                const isOpen = sb.classList.toggle('mtk-open');
-                const b = D.getElementById('mtk-mobile-menu');
-                const bd = D.getElementById('mtk-mobile-backdrop');
-                if (b) b.classList.toggle('open', isOpen);
-                if (bd) bd.classList.toggle('show', isOpen);
+                D.body.classList.toggle('mtk-sidebar-on');
                 return false;
             };
             W.__mtkClose = function() {
-                const sb = D.querySelector('section[data-testid="stSidebar"]');
-                const b = D.getElementById('mtk-mobile-menu');
-                const bd = D.getElementById('mtk-mobile-backdrop');
-                if (sb) sb.classList.remove('mtk-open');
-                if (b) b.classList.remove('open');
-                if (bd) bd.classList.remove('show');
+                D.body.classList.remove('mtk-sidebar-on');
                 return false;
             };
 
@@ -2751,6 +2739,24 @@ def force_open_sidebar() -> None:
                 const style = D.createElement('style');
                 style.id = 'mtk-mobile-menu-style';
                 style.textContent = `
+                  /* Sidebar: kapalı varsayılan, body'de class yoksa offscreen */
+                  section[data-testid="stSidebar"] {
+                    position: fixed !important;
+                    top: 0; left: 0; bottom: 0;
+                    height: 100vh !important;
+                    z-index: 2147481000 !important;
+                    transform: translateX(-100%) !important;
+                    transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+                    width: min(82vw, 18rem) !important;
+                    max-width: min(82vw, 18rem) !important;
+                    min-width: 0 !important;
+                    box-shadow: 0 0 40px rgba(0,0,0,0.6);
+                  }
+                  body.mtk-sidebar-on section[data-testid="stSidebar"] {
+                    transform: translateX(0) !important;
+                  }
+
+                  /* Hamburger button */
                   #mtk-mobile-menu {
                     position: fixed; top: 12px; left: 12px;
                     z-index: 2147483000;
@@ -2765,7 +2771,7 @@ def force_open_sidebar() -> None:
                     -webkit-tap-highlight-color: transparent;
                   }
                   #mtk-mobile-menu:active { transform: scale(0.92); }
-                  #mtk-mobile-menu.open {
+                  body.mtk-sidebar-on #mtk-mobile-menu {
                     left: calc(min(82vw, 18rem) + 12px);
                     background: #6bc9f0;
                   }
@@ -2775,10 +2781,17 @@ def force_open_sidebar() -> None:
                     border-radius: 2px; pointer-events: none;
                     transition: transform 0.2s, opacity 0.2s;
                   }
-                  #mtk-mobile-menu.open .bar:nth-child(1) { transform: translateY(7.5px) rotate(45deg); }
-                  #mtk-mobile-menu.open .bar:nth-child(2) { opacity: 0; }
-                  #mtk-mobile-menu.open .bar:nth-child(3) { transform: translateY(-7.5px) rotate(-45deg); }
+                  body.mtk-sidebar-on #mtk-mobile-menu .bar:nth-child(1) {
+                    transform: translateY(7.5px) rotate(45deg);
+                  }
+                  body.mtk-sidebar-on #mtk-mobile-menu .bar:nth-child(2) {
+                    opacity: 0;
+                  }
+                  body.mtk-sidebar-on #mtk-mobile-menu .bar:nth-child(3) {
+                    transform: translateY(-7.5px) rotate(-45deg);
+                  }
 
+                  /* Backdrop */
                   #mtk-mobile-backdrop {
                     position: fixed; inset: 0;
                     background: rgba(0,0,0,0.55);
@@ -2787,44 +2800,32 @@ def force_open_sidebar() -> None:
                     transition: opacity 0.25s, visibility 0.25s;
                     -webkit-tap-highlight-color: transparent;
                   }
-                  #mtk-mobile-backdrop.show { opacity: 1; visibility: visible; }
-
-                  section[data-testid="stSidebar"] {
-                    position: fixed !important;
-                    top: 0; left: 0; bottom: 0;
-                    height: 100vh !important;
-                    z-index: 2147481000 !important;
-                    transform: translateX(-100%);
-                    transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
-                    width: min(82vw, 18rem) !important;
-                    max-width: min(82vw, 18rem) !important;
-                    min-width: 0 !important;
-                    box-shadow: 0 0 40px rgba(0,0,0,0.6);
+                  body.mtk-sidebar-on #mtk-mobile-backdrop {
+                    opacity: 1; visibility: visible;
                   }
-                  section[data-testid="stSidebar"].mtk-open { transform: translateX(0) !important; }
 
+                  /* Streamlit'in kendi collapse butonu mobilde gizli */
                   [data-testid="collapsedControl"],
                   [data-testid="stSidebarCollapsedControl"],
-                  [data-testid="stSidebarCollapseButton"] { display: none !important; }
+                  [data-testid="stSidebarCollapseButton"] {
+                    display: none !important;
+                  }
                 `;
                 D.head.appendChild(style);
             }
 
-            // Hamburger button: inline onclick — Streamlit iframe rerun'undan
-            // etkilenmez. Listener kayıp olmaz.
+            // Buton oluştur (sadece yoksa)
             if (!D.getElementById('mtk-mobile-menu')) {
                 const b = D.createElement('button');
                 b.id = 'mtk-mobile-menu';
                 b.type = 'button';
                 b.setAttribute('aria-label', 'Menu');
-                // SADECE onclick — ontouchend ile ikisini koyunca mobilde
-                // çift tetikleniyor (açar sonra hemen kapatır = hiçbir şey olmaz).
                 b.setAttribute('onclick', 'return window.__mtkToggle();');
                 b.innerHTML = '<span class="bar"></span><span class="bar"></span><span class="bar"></span>';
                 D.body.appendChild(b);
             }
 
-            // Backdrop: inline onclick → close
+            // Backdrop oluştur (sadece yoksa)
             if (!D.getElementById('mtk-mobile-backdrop')) {
                 const bd = D.createElement('div');
                 bd.id = 'mtk-mobile-backdrop';
