@@ -2817,8 +2817,9 @@ def force_open_sidebar() -> None:
                 b.id = 'mtk-mobile-menu';
                 b.type = 'button';
                 b.setAttribute('aria-label', 'Menu');
+                // SADECE onclick — ontouchend ile ikisini koyunca mobilde
+                // çift tetikleniyor (açar sonra hemen kapatır = hiçbir şey olmaz).
                 b.setAttribute('onclick', 'return window.__mtkToggle();');
-                b.setAttribute('ontouchend', 'return window.__mtkToggle();');
                 b.innerHTML = '<span class="bar"></span><span class="bar"></span><span class="bar"></span>';
                 D.body.appendChild(b);
             }
@@ -2828,7 +2829,6 @@ def force_open_sidebar() -> None:
                 const bd = D.createElement('div');
                 bd.id = 'mtk-mobile-backdrop';
                 bd.setAttribute('onclick', 'return window.__mtkClose();');
-                bd.setAttribute('ontouchend', 'return window.__mtkClose();');
                 D.body.appendChild(bd);
             }
 
