@@ -3132,4 +3132,65 @@ inject_cursor_script()
 
 # ─── Kontrol paneli — sidebar yerine ana akışın başında ──────────────
 # Dil seçici + PDF yükleme + Temizle. Hem desktop hem mobilde aynı yerde.
-# Streamlit sidebar'ını CSS ile gizliyoruz (hamburger karmaşası y
+# Streamlit sidebar'ını CSS ile gizliyoruz (hamburger karmaşası yok).
+st.markdown('<div class="controls-shell">', unsafe_allow_html=True)
+st.markdown(f'<div class="controls-brand">mtk<span>.</span></div>', unsafe_allow_html=True)
+
+ctrl_lang, ctrl_upload, ctrl_clear = st.columns([1, 2, 1])
+
+with ctrl_lang:
+    render_language_switcher()
+
+with ctrl_upload:
+    uploaded_file = st.file_uploader(
+        t("upload"),
+        type=["pdf"],
+        label_visibility="visible",
+    )
+
+with ctrl_clear:
+    if st.button(t("clear"), use_container_width=True, key="btn_clear_main"):
+        clear_workspace()
+        st.rerun()
+
+if uploaded_file is None and st.session_state.last_file_signature is not None:
+    clear_workspace()
+
+if uploaded_file is not None:
+    file_bytes = uploaded_file.getvalue()
+    file_signature = hashlib.sha1(file_bytes).hexdigest()
+    if st.session_state.last_file_signature != file_signature:
+        try:
+            new_chunks = extract_pdf_chunks(file_bytes)
+        except PDFLoadError as err:
+            st.error(t(err.key).format(**err.fmt))
+            clear_workspace()
+        else:
+            st.session_state.chunks = new_chunks
+            st.session_state.summary = None
+            st.session_state.chat_history = []
+            st.session_state.last_file_signature = file_signature
+            st.session_state.last_file_name = uploaded_file.name
+
+            total_chars = sum(len(c["text"]) for c in new_chunks)
+            if total_chars > MAX_PDF_TEXT_CHARS:
+                st.warning(t("warn_huge_text").format(chars=f"{total_chars:,}"))
+
+if not GROQ_API_KEY:
+    st.error(t("no_api_key"))
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+render_hero()
+render_marquee()
+
+if st.session_state.chunks:
+    summary_tab, chat_tab = st.tabs([t("summary_tab"), t("chat_tab")])
+
+    with summary_tab:
+        render_summary_tab()
+
+    with chat_tab:
+        render_chat_tab()
+else:
+    render_empty_state()
